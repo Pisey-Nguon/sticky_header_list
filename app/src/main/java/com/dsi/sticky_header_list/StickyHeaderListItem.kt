@@ -1,5 +1,6 @@
 package com.dsi.sticky_header_list
 
+import android.R.attr.data
 import java.util.Date
 
 sealed class StickyHeaderListItem<out H, out I> {
@@ -68,7 +69,11 @@ fun <T : Any> stickyHeaderGroupItems(
 
     // Build result with formatted headers
     sortedDates.forEach { date ->
-        val formattedHeader = DateUtils.formatDateForHeader(date)
+        val formattedHeader = DateUtils.formatDateForHeader(
+            date = date,
+            titleToday = "Today",
+            titleYesterday = "Yesterday"
+        )
         result.add(StickyHeaderListItem.Header(formattedHeader))
 
         // Sort items within the group based on itemSortOrder parameter
