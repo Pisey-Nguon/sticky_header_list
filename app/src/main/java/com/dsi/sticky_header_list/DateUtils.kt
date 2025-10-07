@@ -4,7 +4,6 @@ import java.text.SimpleDateFormat
 import java.util.*
 
 object DateUtils {
-    private val outputFormat = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault())
 
     /**
      * Normalizes a Date to midnight (00:00:00) of that day.
@@ -26,7 +25,8 @@ object DateUtils {
      * - "Yesterday" for previous date
      * - "dd/MM/yyyy" for older dates
      */
-    fun formatDateForHeader(date: Date,titleToday:String,titleYesterday: String): String {
+    fun formatDateForHeader(outputPattern:String, date: Date,titleToday:String,titleYesterday: String): String {
+        val outputFormat = SimpleDateFormat(outputPattern, Locale.getDefault())
         val calendar = Calendar.getInstance().apply { time = date }
         val today = Calendar.getInstance()
         val yesterday = Calendar.getInstance().apply {

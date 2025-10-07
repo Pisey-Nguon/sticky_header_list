@@ -26,8 +26,16 @@ class MainActivity : AppCompatActivity() {
         val date: Date
     )
 
-    private lateinit var adapter: StickyHeaderAdapter<ItemHeaderBinding, ItemDataBinding, String, MyDataModel>
-    private lateinit var stickyDecoration: StickyHeaderDecoration<ItemHeaderBinding, ItemDataBinding, String, MyDataModel>
+    // Custom header object with multiple properties
+    data class DateHeader(
+        val date: Date,
+        val label: String,
+        val itemCount: Int,
+        val formattedDate: String
+    )
+
+    private lateinit var adapter: StickyHeaderAdapter<ItemHeaderBinding, ItemDataBinding, DateHeader, MyDataModel>
+    private lateinit var stickyDecoration: StickyHeaderDecoration<ItemHeaderBinding, ItemDataBinding, DateHeader, MyDataModel>
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -59,7 +67,8 @@ class MainActivity : AppCompatActivity() {
                 ItemDataBinding.inflate(inflater, parent, attach)
             },
             bindHeader = { binding, data ->
-                binding.tvHeader.text = data
+                // Now we have access to multiple properties from the header object!
+                binding.tvHeader.text = "${data.label} (${data.itemCount} items)"
             },
             bindItem = { binding, data ->
                 // Display both name and time to show sorting in action
@@ -105,19 +114,34 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private suspend fun loadMoreData(offset: Int): List<StickyHeaderListItem<String, MyDataModel>> {
+    private suspend fun loadMoreData(offset: Int): List<StickyHeaderListItem<DateHeader, MyDataModel>> {
         try {
             Log.d("MainActivity", "loadMoreData called with offset: $offset")
             val newItems = fetchDataFromApi(offset = offset, pageSize = 10)
             Log.d("MainActivity", "fetchDataFromApi returned ${newItems.size} items")
 
-            // Simple and easy! Just pass your items and the Date field
-            // Now with control over item sorting within each group!
+            // Use the new flexible version with custom header objects!
             return stickyHeaderGroupItems(
                 items = newItems,
-                dateExtractor = { it.date },
-                newestFirst = true,
-                itemSortOrder = ItemSortOrder.NEWEST_FIRST  // Type-safe enum!
+                headerExtractor = { item ->
+                    val normalizedDate = DateUtils.normalizeToDay(item.date)
+                    val itemsOnSameDay = newItems.filter {
+                        DateUtils.normalizeToDay(it.date) == normalizedDate
+                    }
+                    DateHeader(
+                        date = normalizedDate,
+                        label = DateUtils.formatDateForHeader(
+                            outputPattern = "dd/MM/yyyy",
+                            date = normalizedDate,
+                            titleToday = "Today",
+                            titleYesterday = "Yesterday"
+                        ),
+                        itemCount = itemsOnSameDay.size,
+                        formattedDate = java.text.SimpleDateFormat("dd/MM/yyyy", java.util.Locale.getDefault()).format(normalizedDate)
+                    )
+                },
+                headerComparator = compareByDescending { it.date }, // Newest dates first
+                itemComparator = compareByDescending { it.date } // Newest items first within each group
             )
         } catch (e: Exception) {
             Log.e("StickyHeaderList", "Error loading more data", e)

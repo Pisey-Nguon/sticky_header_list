@@ -1,6 +1,5 @@
 package com.dsi.sticky_header_list
 
-import android.R.attr.data
 import java.util.Date
 
 sealed class StickyHeaderListItem<out H, out I> {
@@ -10,116 +9,69 @@ sealed class StickyHeaderListItem<out H, out I> {
 }
 
 /**
- * Controls how items are sorted within each group
- */
-enum class ItemSortOrder {
-    /** Sort items by newest (most recent) first within each group */
-    NEWEST_FIRST,
-
-    /** Sort items by oldest (least recent) first within each group */
-    OLDEST_FIRST,
-
-    /** Keep the original order from the input list */
-    ORIGINAL
-}
-
-/**
- * Simple version: Groups items by date and automatically formats headers.
- * This is the easiest way to create date-based sticky headers.
- *
- * Uses Date objects for type safety - no format confusion!
+ * Most flexible version: Use custom header objects with custom comparison logic.
+ * Perfect when you need headers as objects (not just comparable primitives or strings).
  *
  * @param items List of items to group
- * @param dateExtractor Function that returns a Date object from each item
- * @param newestFirst If true, shows newest dates first. Default is true.
- * @param itemSortOrder Controls how items are sorted within each group.
- *                      Default is NEWEST_FIRST.
+ * @param headerExtractor Function that returns a header object for each item
+ * @param headerComparator Comparator to define how headers should be sorted (optional)
+ * @param itemComparator Comparator to define how items should be sorted within groups (optional)
  *
- * Example usage:
+ * Example usage with custom header object:
  * ```
+ * data class DateHeader(
+ *     val date: Date,
+ *     val label: String,
+ *     val itemCount: Int
+ * )
+ *
  * data class Task(val id: Int, val name: String, val createdAt: Date)
  *
  * val grouped = stickyHeaderGroupItems(
  *     items = myTasks,
- *     dateExtractor = { it.createdAt },
- *     itemSortOrder = ItemSortOrder.NEWEST_FIRST
+ *     headerExtractor = { task ->
+ *         val normalizedDate = DateUtils.normalizeToDay(task.createdAt)
+ *         DateHeader(
+ *             date = normalizedDate,
+ *             label = DateUtils.formatDateForHeader(normalizedDate),
+ *             itemCount = myTasks.count { DateUtils.normalizeToDay(it.createdAt) == normalizedDate }
+ *         )
+ *     },
+ *     headerComparator = compareByDescending { it.date }, // Sort by date, newest first
+ *     itemComparator = compareByDescending { it.createdAt } // Sort items by creation date
  * )
  * ```
  */
-fun <T : Any> stickyHeaderGroupItems(
-    items: List<T>,
-    dateExtractor: (T) -> Date,
-    newestFirst: Boolean = true,
-    itemSortOrder: ItemSortOrder = ItemSortOrder.NEWEST_FIRST
-): List<StickyHeaderListItem<String, T>> {
-    if (items.isEmpty()) return emptyList()
-
-    // Group by normalized date (same day = same group)
-    val groupedMap = items.groupBy { item ->
-        DateUtils.normalizeToDay(dateExtractor(item))
-    }
-    val result = mutableListOf<StickyHeaderListItem<String, T>>()
-
-    // Sort dates chronologically
-    val sortedDates = if (newestFirst) {
-        groupedMap.keys.sortedDescending()
-    } else {
-        groupedMap.keys.sorted()
-    }
-
-    // Build result with formatted headers
-    sortedDates.forEach { date ->
-        val formattedHeader = DateUtils.formatDateForHeader(
-            date = date,
-            titleToday = "Today",
-            titleYesterday = "Yesterday"
-        )
-        result.add(StickyHeaderListItem.Header(formattedHeader))
-
-        // Sort items within the group based on itemSortOrder parameter
-        val groupItems = groupedMap[date] ?: emptyList()
-        val sortedGroupItems = when (itemSortOrder) {
-            ItemSortOrder.NEWEST_FIRST -> groupItems.sortedByDescending { dateExtractor(it) }
-            ItemSortOrder.OLDEST_FIRST -> groupItems.sortedBy { dateExtractor(it) }
-            ItemSortOrder.ORIGINAL -> groupItems
-        }
-
-        sortedGroupItems.forEach {
-            result.add(StickyHeaderListItem.Item(it))
-        }
-    }
-
-    return result
-}
-
-/**
- * Advanced version with custom sorting for both headers and items.
- * Use this when you need more control over sorting.
- */
-fun <T : Any, H : Comparable<H>, I : Comparable<I>> stickyHeaderGroupItems(
+fun <T : Any, H : Any> stickyHeaderGroupItems(
     items: List<T>,
     headerExtractor: (T) -> H,
-    itemSorter: (T) -> I,
-    isHeaderAscending: Boolean = true,
-    isItemAscending: Boolean = true
+    headerComparator: Comparator<H>? = null,
+    itemComparator: Comparator<T>? = null
 ): List<StickyHeaderListItem<H, T>> {
+    if (items.isEmpty()) return emptyList()
+
     val groupedMap = items.groupBy(headerExtractor)
     val result = mutableListOf<StickyHeaderListItem<H, T>>()
 
-    val sortedHeaders = if (isHeaderAscending) {
-        groupedMap.keys.sortedBy { it }
+    val sortedHeaders = if (headerComparator != null) {
+        groupedMap.keys.sortedWith(headerComparator)
     } else {
-        groupedMap.keys.sortedByDescending { it }
+        groupedMap.keys.toList()
     }
 
-    sortedHeaders.forEach { key ->
-        result.add(StickyHeaderListItem.Header(key))
-        val sortedItems = if (isItemAscending) {
-            groupedMap[key]?.sortedBy(itemSorter)
+    sortedHeaders.forEach { header ->
+        result.add(StickyHeaderListItem.Header(header))
+
+        val groupItems = groupedMap[header] ?: emptyList()
+        val sortedItems = if (itemComparator != null) {
+            groupItems.sortedWith(itemComparator)
         } else {
-            groupedMap[key]?.sortedByDescending(itemSorter)
+            groupItems
         }
-        sortedItems?.forEach { result.add(StickyHeaderListItem.Item(it)) }
+
+        sortedItems.forEach {
+            result.add(StickyHeaderListItem.Item(it))
+        }
     }
 
     return result
