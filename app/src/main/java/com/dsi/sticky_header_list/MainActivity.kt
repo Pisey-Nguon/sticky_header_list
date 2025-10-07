@@ -11,13 +11,10 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.dsi.sticky_header_list.databinding.ItemDataBinding
 import com.dsi.sticky_header_list.databinding.ItemHeaderBinding
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.util.Calendar
 import java.util.Date
-import java.util.Locale
 import kotlin.collections.isNotEmpty
 
 class MainActivity : AppCompatActivity() {
@@ -65,13 +62,16 @@ class MainActivity : AppCompatActivity() {
                 binding.tvHeader.text = data
             },
             bindItem = { binding, data ->
-                binding.tvItemName.text = data.name
+                // Display both name and time to show sorting in action
+                val timeFormat = java.text.SimpleDateFormat("hh:mm a", java.util.Locale.getDefault())
+                binding.tvItemName.text = "${data.name} - ${timeFormat.format(data.date)}"
                 binding.root.setOnClickListener {
                     Log.d("StickyHeaderList", "Item clicked: ${data.name}")
                     onItemClicked(data)
                 }
             },
-            onLoadMore = { offset -> loadMoreData(offset) }
+            onLoadMore = { offset -> loadMoreData(offset) },
+            lifecycleScope = lifecycleScope,
         )
 
         // Setup decoration with sticky header enabled by default
@@ -112,10 +112,12 @@ class MainActivity : AppCompatActivity() {
             Log.d("MainActivity", "fetchDataFromApi returned ${newItems.size} items")
 
             // Simple and easy! Just pass your items and the Date field
+            // Now with control over item sorting within each group!
             return stickyHeaderGroupItems(
                 items = newItems,
                 dateExtractor = { it.date },
-                newestFirst = true
+                newestFirst = true,
+                itemSortOrder = ItemSortOrder.NEWEST_FIRST  // Type-safe enum!
             )
         } catch (e: Exception) {
             Log.e("StickyHeaderList", "Error loading more data", e)
@@ -154,14 +156,20 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        val date = calendar.time
-        Log.d("checkStatus ", "fetchDataFromApi: offset done $offset with date $date")
+        Log.d("checkStatus ", "fetchDataFromApi: offset done $offset with date ${calendar.time}")
 
+        // Create items with different times within the same day so sorting works
         return (1..pageSize).map { index ->
+            val itemCalendar = calendar.clone() as Calendar
+            // Add different hours/minutes to each item to make sorting visible
+            // For newest first: later items get later times
+            // For oldest first: the order will reverse
+            itemCalendar.add(Calendar.MINUTE, index * 10)
+
             MyDataModel(
                 id = startId + index,
                 name = "Remote Item ${offset + index}",
-                date = date  // Direct Date object - no string conversion!
+                date = itemCalendar.time  // Each item has a different time
             )
         }
     }

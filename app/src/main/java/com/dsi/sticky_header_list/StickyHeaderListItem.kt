@@ -9,6 +9,20 @@ sealed class StickyHeaderListItem<out H, out I> {
 }
 
 /**
+ * Controls how items are sorted within each group
+ */
+enum class ItemSortOrder {
+    /** Sort items by newest (most recent) first within each group */
+    NEWEST_FIRST,
+
+    /** Sort items by oldest (least recent) first within each group */
+    OLDEST_FIRST,
+
+    /** Keep the original order from the input list */
+    ORIGINAL
+}
+
+/**
  * Simple version: Groups items by date and automatically formats headers.
  * This is the easiest way to create date-based sticky headers.
  *
@@ -17,6 +31,8 @@ sealed class StickyHeaderListItem<out H, out I> {
  * @param items List of items to group
  * @param dateExtractor Function that returns a Date object from each item
  * @param newestFirst If true, shows newest dates first. Default is true.
+ * @param itemSortOrder Controls how items are sorted within each group.
+ *                      Default is NEWEST_FIRST.
  *
  * Example usage:
  * ```
@@ -24,14 +40,16 @@ sealed class StickyHeaderListItem<out H, out I> {
  *
  * val grouped = stickyHeaderGroupItems(
  *     items = myTasks,
- *     dateExtractor = { it.createdAt }
+ *     dateExtractor = { it.createdAt },
+ *     itemSortOrder = ItemSortOrder.NEWEST_FIRST
  * )
  * ```
  */
 fun <T : Any> stickyHeaderGroupItems(
     items: List<T>,
     dateExtractor: (T) -> Date,
-    newestFirst: Boolean = true
+    newestFirst: Boolean = true,
+    itemSortOrder: ItemSortOrder = ItemSortOrder.NEWEST_FIRST
 ): List<StickyHeaderListItem<String, T>> {
     if (items.isEmpty()) return emptyList()
 
@@ -52,7 +70,16 @@ fun <T : Any> stickyHeaderGroupItems(
     sortedDates.forEach { date ->
         val formattedHeader = DateUtils.formatDateForHeader(date)
         result.add(StickyHeaderListItem.Header(formattedHeader))
-        groupedMap[date]?.forEach {
+
+        // Sort items within the group based on itemSortOrder parameter
+        val groupItems = groupedMap[date] ?: emptyList()
+        val sortedGroupItems = when (itemSortOrder) {
+            ItemSortOrder.NEWEST_FIRST -> groupItems.sortedByDescending { dateExtractor(it) }
+            ItemSortOrder.OLDEST_FIRST -> groupItems.sortedBy { dateExtractor(it) }
+            ItemSortOrder.ORIGINAL -> groupItems
+        }
+
+        sortedGroupItems.forEach {
             result.add(StickyHeaderListItem.Item(it))
         }
     }

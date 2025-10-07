@@ -26,7 +26,7 @@ object DateUtils {
      * - "Yesterday" for previous date
      * - "dd/MM/yyyy" for older dates
      */
-    fun formatDateForHeader(date: Date): String {
+    fun formatDateForHeader(date: Date,titleToday:String,titleYesterday: String): String {
         val calendar = Calendar.getInstance().apply { time = date }
         val today = Calendar.getInstance()
         val yesterday = Calendar.getInstance().apply {
@@ -34,8 +34,8 @@ object DateUtils {
         }
 
         return when {
-            isSameDay(calendar, today) -> "Today"
-            isSameDay(calendar, yesterday) -> "Yesterday"
+            isSameDay(calendar, today) -> titleToday
+            isSameDay(calendar, yesterday) -> titleYesterday
             else -> outputFormat.format(date)
         }
     }

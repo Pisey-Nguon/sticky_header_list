@@ -3,12 +3,12 @@ package com.dsi.sticky_header_list
 import android.view.LayoutInflater
 import android.view.ViewGroup
 import android.util.Log
+import androidx.lifecycle.LifecycleCoroutineScope
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import androidx.viewbinding.ViewBinding
 import com.dsi.sticky_header_list.databinding.ItemStickyLoadingBinding
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -21,8 +21,9 @@ class StickyHeaderAdapter<HB : ViewBinding, IB : ViewBinding, H, I>(
     val bindHeader: (HB, H) -> Unit,
     private val bindItem: (IB, I) -> Unit,
     private val onLoadMore: suspend (offset: Int) -> List<StickyHeaderListItem<H, I>>,
+    private val lifecycleScope: LifecycleCoroutineScope,
 
-) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
+    ) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
 
     companion object {
         const val TYPE_HEADER = 0
@@ -51,7 +52,7 @@ class StickyHeaderAdapter<HB : ViewBinding, IB : ViewBinding, H, I>(
                     rv.post {
                         if (!isLoading && hasMore) { // Double-check since we're posting
                             showLoading()
-                            CoroutineScope(Dispatchers.IO).launch {
+                            lifecycleScope.launch(Dispatchers.IO) {
                                 isLoading = true
                                 val offset = items.count { it is StickyHeaderListItem.Item<*> }
                                 val newItems = onLoadMore.invoke(offset)
