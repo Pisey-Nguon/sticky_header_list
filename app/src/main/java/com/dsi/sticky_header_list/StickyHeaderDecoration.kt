@@ -7,8 +7,8 @@ import android.view.ViewGroup
 import androidx.recyclerview.widget.RecyclerView
 import androidx.viewbinding.ViewBinding
 
-class StickyHeaderDecoration<HB : ViewBinding, IB : ViewBinding>(
-    private val adapter: StickyHeaderAdapter<HB, IB>,
+class StickyHeaderDecoration<HB : ViewBinding, IB : ViewBinding, H, I>(
+    private val adapter: StickyHeaderAdapter<HB, IB, H, I>,
     private var isStickyEnabled: Boolean = true
 ) : RecyclerView.ItemDecoration() {
 

@@ -6,6 +6,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.dsi.sticky_header_list.databinding.ItemDataBinding
@@ -14,18 +15,22 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import java.util.Calendar
+import java.util.Date
+import java.util.Locale
+import kotlin.collections.isNotEmpty
 
 class MainActivity : AppCompatActivity() {
 
-    // Data model with better encapsulation
+    // Data model with Date object instead of string
     data class MyDataModel(
         val id: Int,
         val name: String,
-        val date: String
+        val date: Date
     )
 
-    private lateinit var adapter: StickyHeaderAdapter<ItemHeaderBinding, ItemDataBinding>
-    private lateinit var stickyDecoration: StickyHeaderDecoration<ItemHeaderBinding, ItemDataBinding>
+    private lateinit var adapter: StickyHeaderAdapter<ItemHeaderBinding, ItemDataBinding, String, MyDataModel>
+    private lateinit var stickyDecoration: StickyHeaderDecoration<ItemHeaderBinding, ItemDataBinding, String, MyDataModel>
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -49,7 +54,7 @@ class MainActivity : AppCompatActivity() {
 
         // Create adapter with empty initial list
         adapter = StickyHeaderAdapter(
-            items = ArrayList(), // Start with empty list
+            items = ArrayList(),
             headerInflater = { inflater, parent, attach ->
                 ItemHeaderBinding.inflate(inflater, parent, attach)
             },
@@ -57,22 +62,20 @@ class MainActivity : AppCompatActivity() {
                 ItemDataBinding.inflate(inflater, parent, attach)
             },
             bindHeader = { binding, data ->
-                binding.tvHeader.text = data.toString()
+                binding.tvHeader.text = data
             },
             bindItem = { binding, data ->
-                val item = data as MyDataModel
-                binding.tvItemName.text = item.name
+                binding.tvItemName.text = data.name
                 binding.root.setOnClickListener {
-                    Log.d("StickyHeaderList", "Item clicked: ${item.name}")
-                    onItemClicked(item)
+                    Log.d("StickyHeaderList", "Item clicked: ${data.name}")
+                    onItemClicked(data)
                 }
             },
             onLoadMore = { offset -> loadMoreData(offset) }
         )
 
         // Setup decoration with sticky header enabled by default
-        // You can set isStickyEnabled = false to disable sticky headers
-        stickyDecoration = StickyHeaderDecoration(adapter, isStickyEnabled = false)
+        stickyDecoration = StickyHeaderDecoration(adapter, isStickyEnabled = true)
 
         // Configure RecyclerView
         recyclerView.apply {
@@ -90,7 +93,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun triggerInitialLoad() {
         // Manually trigger the first load since the list starts empty
-        CoroutineScope(Dispatchers.Main).launch {
+        lifecycleScope.launch {
             try {
                 val initialItems = loadMoreData(offset = 0)
                 if (initialItems.isNotEmpty()) {
@@ -102,17 +105,18 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private suspend fun loadMoreData(offset: Int): List<StickyHeaderListItem> {
+    private suspend fun loadMoreData(offset: Int): List<StickyHeaderListItem<String, MyDataModel>> {
         try {
             Log.d("MainActivity", "loadMoreData called with offset: $offset")
             val newItems = fetchDataFromApi(offset = offset, pageSize = 10)
             Log.d("MainActivity", "fetchDataFromApi returned ${newItems.size} items")
 
-            val grouped = stickyHeaderGroupItems(
+            // Simple and easy! Just pass your items and the Date field
+            return stickyHeaderGroupItems(
                 items = newItems,
-                headerExtractor = { it.date }
+                dateExtractor = { it.date },
+                newestFirst = true
             )
-            return grouped
         } catch (e: Exception) {
             Log.e("StickyHeaderList", "Error loading more data", e)
             return emptyList()
@@ -125,19 +129,39 @@ class MainActivity : AppCompatActivity() {
         delay(1500) // Simulate network delay
 
         val startId = offset + 1
+        val calendar = Calendar.getInstance()
 
-        // Set different dates based on offset
-        val date = when (offset) {
-            0 -> "2025-04-11"
-            else -> "2025-04-12"
+        // Set different dates based on offset to demonstrate Today, Yesterday, and formatted dates
+        when (offset) {
+            0 -> {
+                // Today's date - no change needed
+            }
+            10 -> {
+                // Yesterday
+                calendar.add(Calendar.DAY_OF_YEAR, -1)
+            }
+            20 -> {
+                // 2 days ago
+                calendar.add(Calendar.DAY_OF_YEAR, -2)
+            }
+            30 -> {
+                // 5 days ago
+                calendar.add(Calendar.DAY_OF_YEAR, -5)
+            }
+            else -> {
+                // 7 days ago
+                calendar.add(Calendar.DAY_OF_YEAR, -7)
+            }
         }
-        Log.d("checkStatus ", "fetchDataFromApi: offset done $offset")
+
+        val date = calendar.time
+        Log.d("checkStatus ", "fetchDataFromApi: offset done $offset with date $date")
 
         return (1..pageSize).map { index ->
             MyDataModel(
                 id = startId + index,
                 name = "Remote Item ${offset + index}",
-                date = date
+                date = date  // Direct Date object - no string conversion!
             )
         }
     }

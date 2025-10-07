@@ -13,13 +13,15 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-class StickyHeaderAdapter<HB : ViewBinding, IB : ViewBinding>(
-    val items: ArrayList<StickyHeaderListItem>,
+@Suppress("UNCHECKED_CAST")
+class StickyHeaderAdapter<HB : ViewBinding, IB : ViewBinding, H, I>(
+    val items: ArrayList<StickyHeaderListItem<H, I>>,
     val headerInflater: (LayoutInflater, ViewGroup, Boolean) -> HB,
     private val itemInflater: (LayoutInflater, ViewGroup, Boolean) -> IB,
-    val bindHeader: (HB, Any) -> Unit,
-    private val bindItem: (IB, Any) -> Unit,
-    private val onLoadMore: suspend (offset: Int) -> List<StickyHeaderListItem>
+    val bindHeader: (HB, H) -> Unit,
+    private val bindItem: (IB, I) -> Unit,
+    private val onLoadMore: suspend (offset: Int) -> List<StickyHeaderListItem<H, I>>,
+
 ) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
 
     companion object {
@@ -51,7 +53,7 @@ class StickyHeaderAdapter<HB : ViewBinding, IB : ViewBinding>(
                             showLoading()
                             CoroutineScope(Dispatchers.IO).launch {
                                 isLoading = true
-                                val offset = items.filterIsInstance<StickyHeaderListItem.Item>().size
+                                val offset = items.count { it is StickyHeaderListItem.Item<*> }
                                 val newItems = onLoadMore.invoke(offset)
                                 hasMore = newItems.isNotEmpty()
                                 withContext(Dispatchers.Main) {
@@ -63,9 +65,11 @@ class StickyHeaderAdapter<HB : ViewBinding, IB : ViewBinding>(
 
                                         // Check if we need to merge items under an existing header
                                         val firstNewItem = newItems.firstOrNull()
-                                        if (firstNewItem is StickyHeaderListItem.Header) {
+                                        if (firstNewItem is StickyHeaderListItem.Header<*>) {
+                                            @Suppress("UNCHECKED_CAST")
+                                            val firstHeader = firstNewItem as StickyHeaderListItem.Header<H>
                                             val existingHeaderIndex = updated.indexOfFirst {
-                                                it is StickyHeaderListItem.Header && it.data == firstNewItem.data
+                                                it is StickyHeaderListItem.Header<*> && it.data == firstHeader.data
                                             }
 
                                             if (existingHeaderIndex != -1) {
@@ -75,17 +79,17 @@ class StickyHeaderAdapter<HB : ViewBinding, IB : ViewBinding>(
                                                 // Find the position to insert (after all items of this header)
                                                 var insertPosition = existingHeaderIndex + 1
                                                 while (insertPosition < updated.size &&
-                                                    updated[insertPosition] is StickyHeaderListItem.Item
+                                                    updated[insertPosition] is StickyHeaderListItem.Item<*>
                                                 ) {
                                                     insertPosition++
                                                 }
 
                                                 updated.addAll(insertPosition, itemsToAdd)
-                                                Log.d("StickyHeaderAdapter", "Merged ${itemsToAdd.size} items under existing header '${firstNewItem.data}' at position $insertPosition")
+                                                Log.d("StickyHeaderAdapter", "Merged ${itemsToAdd.size} items under existing header '${firstHeader.data}' at position $insertPosition")
                                             } else {
                                                 // New header, add everything
                                                 updated.addAll(newItems)
-                                                Log.d("StickyHeaderAdapter", "Added new header '${firstNewItem.data}' and ${newItems.size - 1} items")
+                                                Log.d("StickyHeaderAdapter", "Added new header '${firstHeader.data}' and ${newItems.size - 1} items")
                                             }
                                         } else {
                                             // No header in new items, just add everything
@@ -156,19 +160,21 @@ class StickyHeaderAdapter<HB : ViewBinding, IB : ViewBinding>(
 
     override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
         when (val listItem = items[position]) {
-            is StickyHeaderListItem.Header -> (holder as StickyHeaderAdapter<*, *>.HeaderViewHolder).bind(
-                listItem.data
-            )
-
-            is StickyHeaderListItem.Item -> (holder as StickyHeaderAdapter<*, *>.ItemViewHolder).bind(listItem.data)
-            is StickyHeaderListItem.Loading -> { /* No binding needed */
+            is StickyHeaderListItem.Header<*> -> {
+                val headerHolder = holder as StickyHeaderAdapter<HB, IB, H, I>.HeaderViewHolder
+                headerHolder.bindHeader(listItem.data as H)
             }
+            is StickyHeaderListItem.Item<*> -> {
+                val itemHolder = holder as StickyHeaderAdapter<HB, IB, H, I>.ItemViewHolder
+                itemHolder.bindItem(listItem.data as I)
+            }
+            is StickyHeaderListItem.Loading -> { /* No binding needed */ }
         }
     }
 
     override fun getItemCount(): Int = items.size
 
-    fun updateData(newItems: List<StickyHeaderListItem>) {
+    fun updateData(newItems: List<StickyHeaderListItem<H, I>>) {
         val diffCallback = object : DiffUtil.Callback() {
             override fun getOldListSize() = items.size
             override fun getNewListSize() = newItems.size
@@ -208,45 +214,64 @@ class StickyHeaderAdapter<HB : ViewBinding, IB : ViewBinding>(
     }
 
     fun filterStickyHeaderList(
-        items: List<StickyHeaderListItem>,
-        predicate: (StickyHeaderListItem.Item) -> Boolean
-    ): List<StickyHeaderListItem> {
-        val filteredItems = items.filterIsInstance<StickyHeaderListItem.Item>().filter(predicate)
-        val headers = items.filterIsInstance<StickyHeaderListItem.Header>()
+        items: List<StickyHeaderListItem<H, I>>,
+        predicate: (I) -> Boolean
+    ): List<StickyHeaderListItem<H, I>> {
+        val result = mutableListOf<StickyHeaderListItem<H, I>>()
+        var currentHeader: StickyHeaderListItem.Header<H>? = null
+        val currentGroupItems = mutableListOf<StickyHeaderListItem.Item<I>>()
 
-        val groupedMap = filteredItems.groupBy { item ->
-            headers.findLast { header ->
-                items.indexOf(header) < items.indexOf(item)
-            }?.data
-        }
-
-        val result = mutableListOf<StickyHeaderListItem>()
-        headers.forEach { header ->
-            val headerData = header.data
-            val associatedItems = groupedMap[headerData]
-            result.add(header) // Always add the header
-            if (!associatedItems.isNullOrEmpty()) {
-                result.addAll(associatedItems) // Add matching items under the header
+        items.forEach { item ->
+            when (item) {
+                is StickyHeaderListItem.Header<*> -> {
+                    // Add previous header and its filtered items
+                    currentHeader?.let { header ->
+                        if (currentGroupItems.isNotEmpty()) {
+                            result.add(header)
+                            result.addAll(currentGroupItems)
+                        }
+                    }
+                    @Suppress("UNCHECKED_CAST")
+                    currentHeader = item as StickyHeaderListItem.Header<H>
+                    currentGroupItems.clear()
+                }
+                is StickyHeaderListItem.Item<*> -> {
+                    @Suppress("UNCHECKED_CAST")
+                    val typedItem = item as StickyHeaderListItem.Item<I>
+                    if (predicate(typedItem.data)) {
+                        currentGroupItems.add(typedItem)
+                    }
+                }
+                is StickyHeaderListItem.Loading -> { /* Skip loading items */ }
             }
         }
+
+        // Add last header and its items
+        currentHeader?.let { header ->
+            if (currentGroupItems.isNotEmpty()) {
+                result.add(header)
+                result.addAll(currentGroupItems)
+            }
+        }
+
         return result
     }
 
 
     inner class HeaderViewHolder(val binding: HB) :
         RecyclerView.ViewHolder(binding.root) {
-        fun bind(data: Any) {
+        fun bindHeader(data: H) {
             bindHeader(binding, data)
         }
     }
 
     inner class ItemViewHolder(val binding: IB) :
         RecyclerView.ViewHolder(binding.root) {
-        fun bind(data: Any) {
-            bindItem(binding, data)
+        fun bindItem(data: I) {
+            this@StickyHeaderAdapter.bindItem(binding, data)
         }
     }
 
-    inner class LoadingViewHolder(val binding: ItemStickyLoadingBinding) :
+    inner class LoadingViewHolder(binding: ItemStickyLoadingBinding) :
         RecyclerView.ViewHolder(binding.root)
 }
